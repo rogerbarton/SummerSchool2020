@@ -2,7 +2,7 @@
 
 __global__
 void hello_kernel() {
-    printf("hello world from cuda thread %d\n", int(threadIdx.x));
+    printf("hello world from CUDA thread %d\n", int(threadIdx.x));
 }
 
 int main(void) {
