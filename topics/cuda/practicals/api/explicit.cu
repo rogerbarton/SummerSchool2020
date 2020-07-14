@@ -30,6 +30,7 @@ int main(int argc, char** argv) {
 
     // copy memory to device
     auto start = get_time();
+    // Memcpy is blocking, commands on GPU are in a stream, are in sequential order
     copy_to_device<double>(x_host, x_device, n);
     copy_to_device<double>(y_host, y_device, n);
 
