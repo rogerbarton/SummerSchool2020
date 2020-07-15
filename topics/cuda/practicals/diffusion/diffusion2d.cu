@@ -28,6 +28,16 @@ void diffusion(double *x0, double *x1, int nx, int ny, double dt) {
 //                   + x0[i-1,j] + x0[i+1,j]);
 //    }
 //  }
+
+    // +1 so we can ignore the i/j == 0
+    int i = blockIdx.x * blockDim.x + threadIdx.x +1;
+    int j = blockIdx.y * blockDim.y + threadIdx.y +1;
+
+    if (i < nx -1 && j < ny -1)
+        x1[i+j*nx] = x0[i   + j*nx] + dt * (-4.*x0[i   + j*nx]
+                   + x0[i   + (j-1)*nx] + x0[i   + (j+1)*nx]
+                   + x0[i-1 + j*nx]     + x0[i+1 + j*nx]);
+
 }
 
 int main(int argc, char** argv) {
@@ -71,6 +81,13 @@ int main(int argc, char** argv) {
     // time stepping loop
     for(auto step=0; step<nsteps; ++step) {
         // TODO: launch the diffusion kernel in 2D
+        int bx = 8;
+        int by = 8;
+        dim3 blockDim = dim3(bx, by);
+        dim3 gridDim  = dim3((nx -2 + bx -1) / bx,
+                             (ny -2 + by -1) / by);
+
+        diffusion<<<gridDim, blockDim>>>(x0, x1, nx, ny, dt);
 
         std::swap(x0, x1);
     }
