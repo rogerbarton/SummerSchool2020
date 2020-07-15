@@ -91,6 +91,15 @@ double ss_dot(Field const& x, Field const& y)
     double result = 0.;
     const int n = x.length();
 
+    auto handle = cublas_handle();
+
+    auto status = cublasDdot(handle, x.length(), 
+            x.device_data(), 1, 
+            y.device_data(), 1, 
+            &result);
+
+    cublas_check_status(status);
+
     return result;
 }
 
@@ -103,6 +112,12 @@ double ss_norm2(Field const& x)
 {
     double result = 0;
     const int n = x.length();
+
+    auto handle = cublas_handle();
+
+    auto status = cublasDnrm2(handle, x.length(), x.device_data(), 1, &result);
+    cublas_check_status(status);
+
 
     return result;
 }
@@ -142,11 +157,24 @@ void ss_copy(Field& y, Field const& x)
 // ss_scale
 // ss_lcomb
 
+__global__
+void ss_fill_kernel(const int n, double* x, const double value)
+{
+    int i = threadIdx.x + blockDim.x * blockIdx.x;
+    if (i < n) {
+        x[i] = value;
+    }
+}
+
 // sets x := value
 // x is a vector
 // value is a scalar
 void ss_fill(Field& x, const double value)
 {
+    int n = x.length();
+    int blockDim = 64;
+    int gridDim  = (n + blockDim - 1) / blockDim;
+    ss_fill_kernel<<<gridDim, blockDim>>>(n, x.device_data(), value);
 }
 
 // computes y := alpha*x + y
@@ -154,6 +182,17 @@ void ss_fill(Field& x, const double value)
 // alpha is a scalar
 void ss_axpy(Field& y, const double alpha, Field const& x)
 {
+    auto handle = cublas_handle();
+    auto status = cublasDaxpy(handle, x.length(), &alpha, x.device_data(), 1, y.device_data(), 1);
+    cublas_check_status(status);
+}
+
+__global__
+void ss_scaled_diff_kernel(const int n, double* y, const double alpha, const double* l, const double* r) {
+    int i = threadIdx.x + blockDim.x * blockIdx.x;
+    if (i < n)
+        y[i] = alpha * (l[i] - r[i]);
+
 }
 
 // computes y = alpha*(l-r)
@@ -161,6 +200,16 @@ void ss_axpy(Field& y, const double alpha, Field const& x)
 // alpha is a scalar
 void ss_scaled_diff(Field& y, const double alpha, Field const& l, Field const& r)
 {
+    int n = y.length();
+    auto grid_dim = calculate_grid_dim(block_dim, n);
+    ss_scaled_diff_kernel<<<grid_dim, block_dim>>>(n, y.device_data(), alpha, l.device_data(), r.device_data());
+}
+
+__global__
+void ss_scale_kernel(const int n, double* y, const double* x, const double alpha){
+    int i = threadIdx.x + blockDim.x * blockIdx.x;
+    if (i < n)
+        y[i] = alpha * x[i];
 }
 
 // computes y := alpha*x
@@ -168,6 +217,20 @@ void ss_scaled_diff(Field& y, const double alpha, Field const& l, Field const& r
 // y and x are vectors
 void ss_scale(Field& y, const double alpha, Field& x)
 {
+    int n = x.length();
+    int blockDim = 64;
+    int gridDim  = (n + blockDim - 1) / blockDim;
+    
+    ss_scale_kernel<<<gridDim, blockDim>>>(n, y.device_data(), x.device_data(), alpha);
+}
+
+__global__
+void ss_lcomb_kernel(const int n, double* y, const double alpha, const double* x, const double beta, const double* z) {
+    int i = threadIdx.x + blockDim.x * blockIdx.x;
+
+    if(i < n) {
+        y[i] = alpha * x[i] + beta * z[i];
+    }
 }
 
 // computes linear combination of two vectors y := alpha*x + beta*z
@@ -175,6 +238,12 @@ void ss_scale(Field& y, const double alpha, Field& x)
 // y, x and z are vectors
 void ss_lcomb(Field& y, const double alpha, Field& x, const double beta, Field const& z)
 {
+    int n = x.length();
+    int blockDim = 64;
+    int gridDim  = (n + blockDim - 1) / blockDim;
+    ss_lcomb_kernel<<<gridDim, blockDim>>>
+        (n, y.device_data(), alpha, x.device_data(), beta, z.device_data());
+    //cuda_check_status(status);
 }
 
 // conjugate gradient solver

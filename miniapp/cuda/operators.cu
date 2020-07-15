@@ -29,6 +29,7 @@ struct DiffusionParams {
 };
 
 // TODO : explain what the params variable and setup_params_on_device() do
+// Global variable on the gpu
 __device__
 DiffusionParams params;
 
@@ -47,6 +48,7 @@ void setup_params_on_device(int nx, int ny, double alpha, double dxs)
     };
 
     cuda_check_status(
+        // Symbol = global variable
         cudaMemcpyToSymbol(params, &p, sizeof(DiffusionParams))
     );
 }
@@ -61,10 +63,27 @@ namespace kernels {
         //                          + U(i,j-1) + U(i,j+1) // north and south
         //                          + alpha * x_old(i,j)
         //                          + dxs * U(i,j) * (1.0 - U(i,j));
+        int i = threadIdx.x + blockDim.x * blockIdx.x +1;
+        int j = threadIdx.y + blockDim.y * blockIdx.y +1;
+
+        int nx = params.nx;
+        int ny = params.ny;
+        double alpha = params.alpha;
+        double* x_old = params.x_old;
+        double dxs = params.dxs;
+
+        int pos = i + j * nx;
+        if (i < nx -1 && j < ny -1)
+            S[pos] = -(4. + alpha) * U[pos]              // central point
+                                   + U[pos -1] + U[pos + 1] // east and west
+                                   + U[pos - nx] + U[pos + nx] // north and south
+                                   + alpha * x_old[pos]
+                                   + dxs * U[pos] * (1.0 - U[pos]);
     }
 
     __global__
     void stencil_east_west(double* S, const double *U) {
+        // note: 1D launch config
         auto j = threadIdx.x + blockDim.x*blockIdx.x;
 
         auto nx = params.nx;
@@ -86,6 +105,13 @@ namespace kernels {
 
             // TODO : do the stencil on the WEST side
             // WEST : i = 0
+            pos = find_pos(0, j);
+            S[pos] = -(4. + alpha) * U[pos]
+                        + U[pos+1] + U[pos-nx] + U[pos+nx]
+                        + alpha*params.x_old[pos] + params.bndW[j]
+                        + dxs * U[pos] * (1.0 - U[pos]);
+
+
         }
     }
 
@@ -108,7 +134,13 @@ namespace kernels {
 
             // TODO : do the stencil on the SOUTH side
             // SOUTH : j = 0
-        }
+            pos = i + nx*(0);
+            S[pos] = -(4. + alpha) * U[pos]
+                        + U[pos-1] + U[pos+1] + U[pos+nx]
+                        + alpha*params.x_old[pos] + params.bndS[i]
+                        + dxs * U[pos] * (1.0 - U[pos]);
+
+       }
     }
 
     __global__
@@ -198,6 +230,11 @@ void diffusion(data::Field const& U, data::Field &S)
     };
 
     // TODO: apply stencil to the interior grid points
+    auto block_dim = dim3(8, 8);
+    auto grid_dim_interior = dim3(
+            calculate_grid_dim(nx -2, block_dim.x), 
+            calculate_grid_dim(ny -2, block_dim.y));
+    kernels::stencil_interior<<<grid_dim_interior, block_dim>>>(S.device_data(), U.device_data());
 
     cudaDeviceSynchronize();    // TODO: remove after debugging
     cuda_check_last_kernel("internal kernel"); // TODO: remove after debugging

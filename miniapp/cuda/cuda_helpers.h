@@ -22,6 +22,15 @@ static inline void cuda_check_status(cudaError_t error_code) {
     }
 }
 
+static inline void cublas_check_status(cublasStatus_t error_code) {
+    if(error_code != CUBLAS_STATUS_SUCCESS) {
+        std::cerr << "error: cublas call : "
+                  << error_code << std::endl;
+        exit(-1);
+    }
+}
+
+
 static inline cublasHandle_t& cublas_handle() {
     static cublasHandle_t cublas_handle;
     static bool is_initialized = false;
