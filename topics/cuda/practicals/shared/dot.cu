@@ -19,29 +19,31 @@ __global__
 void dot_gpu_kernel(const double *x, const double* y, double *result, int n) {
     __shared__ double res[THREADS];
     int i = threadIdx.x;
+    int gid = threadIdx.x + blockDim.x * blockIdx.x;
 
-    res[i] = i < n ? x[i] * y[i] : 0;
+    res[i] = gid < n ? x[gid] * y[gid] : 0;
 
     int width = THREADS/2;
-    while (width > 1){
+    while (width > 1) {
         __syncthreads();
-        if(i < width){
-            res[i] += res[i + width];
-        }
-
-
-        width /= 2;
+    
+       if(i < width)
+           res[i] += res[i + width];
+    
+       width /= 2;
     }
 
+    
     if (i == 0)
-        *result = res[0];
+        atomicAdd(result, res[0]);
 }
 
 double dot_gpu(const double *x, const double* y, int n) {
     static double* result = malloc_managed<double>(1);
     // TODO call dot product kernel
-    const int t = 1024;
-    dot_gpu_kernel<t><<<1, t>>>(x, y, result, n);
+    const int t = 64;
+    *result = 0;
+    dot_gpu_kernel<t><<<(n + t - 1) / t, t>>>(x, y, result, n);
 
     cudaDeviceSynchronize();
     return *result;
